@@ -1,0 +1,27 @@
+{
+    "InvalidAuthentication": {
+        "backendCode": "AUTH",
+        "frontendCode": "AUTH",
+        "message": "Invalid authentication credentials"
+    },
+    "InvalidInput": {
+        "backendCode": "INVALID_INPUT",
+        "frontendCode": "INVALID_INPUT",
+        "message": "Invalid Input"
+    },
+    "RequiredInput": {
+        "backendCode": "REQUIRED_INPUT",
+        "frontendCode": "REQUIRED_INPUT",
+        "message": "Required Input"
+    },
+    "InvalidEmail": {
+        "backendCode": "INVALID_EMAIL",
+        "frontendCode": "INVALID_EMAIL",
+        "message": "Email is invalid"
+    },
+    "ConsumerExists": {
+        "backendCode": "CONSUMER_EXIST",
+        "frontendCode": "CONSUMER_EXIST",
+        "message": "Consumer has already registered"
+    }
+}

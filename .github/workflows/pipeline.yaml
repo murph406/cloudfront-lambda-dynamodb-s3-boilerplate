@@ -1,0 +1,83 @@
+name: Deploy backend infrastructure
+on:
+  push:
+    branches: 
+      - develop
+      - main
+      - stage
+env: 
+  Project: ${{ vars.Project }}
+  EncryptSecret: ${{ secrets.ENCRYPT_SECRET }}
+  RecaptchaEnabled: ${{ vars.RECAPTCHA_ENABLED }}
+  RecaptchaThreshold: ${{ vars.RECAPTCHA_THRESHOLD }}
+  DistributionId: ${{ vars.DISTRIBUTION_ID }}
+  RecaptchaSecret: ${{ secrets.RECAPTCHA_SECRET }}
+jobs:
+  Deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name }} 
+    steps: 
+      - uses: actions/checkout@v3
+      - uses: aws-actions/setup-sam@v1
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-region: ${{ vars.AWS_DEFAULT_REGION }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Set Deployment Env Variables
+        shell: bash 
+        run: |
+          echo "Stage=${{ github.ref_name }}" >> $GITHUB_ENV
+          echo "DynamoApplicationTable=$Project-${{ github.ref_name }}-table" >> $GITHUB_ENV
+
+      - name: Check for SAM S3 Bucket
+        shell: bash
+        run: |
+          chmod +x ./templates/setup/create-sam-cli-s3-bucket.sh
+          ./templates/setup/create-sam-cli-s3-bucket.sh
+
+      - name: Set Overrides
+        shell: bash
+        run: |
+          chmod +x ./templates/parameter-overrides/print.sh
+          chmod +x ./templates/parameter-overrides/set.sh
+          ./templates/parameter-overrides/set.sh
+          ./templates/parameter-overrides/print.sh
+
+      - name: Install Dependencies
+        run: npm i
+
+      - name: Run Test Suite
+        run: |
+          cd src/api
+          npm run test
+          cd ../..
+
+      - name: Build Cloudformation Package
+        run: |
+          aws cloudformation package \
+          --template-file ./templates/index.yaml \
+          --output-template-file packaged-template.yaml \
+          --s3-bucket $Project-sam-cli
+
+      - name: Deploy Cloudformation
+        run: |
+          aws cloudformation deploy \
+          --template-file packaged-template.yaml \
+          --stack-name $Stage-$Project-cloudformation \
+          --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
+          --parameter-overrides $(./templates/parameter-overrides/print.sh)
+
+      - name: Deploy Client to s3
+        run: |
+          aws s3 sync ./src/client/ s3://$Project-$Stage --delete
+
+      - name: Invalidate Cloudfront
+        run: |
+          if [[ $DistributionId ]]; then
+            aws cloudfront create-invalidation --distribution-id $DistributionId --paths "/*"
+          fi
+        

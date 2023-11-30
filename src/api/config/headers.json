@@ -1,0 +1,83 @@
+{
+    "local": {
+        "allowedOrigins": [
+            "*"
+        ],
+        "allowedHeaders": [
+            "*"
+        ],
+        "cacheOptions": "900"
+    },
+    "develop": {
+        "allowedOrigins": [
+            "http://localhost:3000",
+            "https://d1uywbnr5ubu0k.cloudfront.net"
+        ],
+        "allowedHeaders": [
+            "Origin",
+            "Content-Type",
+            "Accept",
+            "Input",
+            "Authorization",
+            "User-Agent",
+            "X-Requested-With",
+            "X-Forwarded-For",
+            "X-Origin-Verify",
+            "CloudFront-Viewer-Country",
+            "CloudFront-Viewer-Country-Region",
+            "CloudFront-Viewer-City",
+            "CloudFront-Viewer-Postal-Code",
+            "CloudFront-Viewer-Time-Zone",
+            "recaptcha"
+        ],
+        "cacheOptions": "3600"
+    },
+    "stage": {
+        "allowedOrigins": [
+            "https://dwz7cfz5bbf1q.cloudfront.net",
+            "https://pre-emergingvoices.att.com"
+        ],
+        "allowedHeaders": [
+            "Origin",
+            "Content-Type",
+            "Accept",
+            "Input",
+            "Authorization",
+            "User-Agent",
+            "X-Requested-With",
+            "X-Forwarded-For",
+            "X-Origin-Verify",
+            "CloudFront-Viewer-Country",
+            "CloudFront-Viewer-Country-Region",
+            "CloudFront-Viewer-City",
+            "CloudFront-Viewer-Postal-Code",
+            "CloudFront-Viewer-Time-Zone",
+            "recaptcha"
+        ],
+        "cacheOptions": "86400"
+    },
+    "main": {
+        "allowedOrigins": [
+            "https://d1luvzobtlmh7u.cloudfront.net",
+            "https://emergingvoices.att.com"
+        ],
+        "allowedHeaders": [
+            "Origin",
+            "Content-Type",
+            "Accept",
+            "Input",
+            "Authorization",
+            "User-Agent",
+            "X-Requested-With",
+            "X-Forwarded-For",
+            "X-Origin-Verify",
+            "CloudFront-Viewer-Country",
+            "CloudFront-Viewer-Country-Region",
+            "CloudFront-Viewer-City",
+            "CloudFront-Viewer-Postal-Code",
+            "CloudFront-Viewer-Time-Zone",
+            "recaptcha"
+        ],
+        "cacheOptions": "86400"
+    }
+}

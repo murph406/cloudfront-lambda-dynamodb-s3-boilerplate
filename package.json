@@ -1,0 +1,16 @@
+{
+  "name": "s3-cloudfront-lambda-api-boilerplate",
+  "version": "1.0.0",
+  "description": "A simple setup for a client-side and API applications with infrastructure using AWS S3, CloudFront, and Lambda.",
+  "author": "Ryan Murphy",
+  "license": "ISC",
+  "scripts": {
+    "script:setup": "node scripts/index.js --setup",
+    "script:installDependencies": "node scripts/index.js --installDependencies",
+    "postinstall": "npm run script:installDependencies"
+  },
+  "dependencies": {
+    "eslint": "^8.53.0",
+    "inquirer": "^8.2.6"
+  }
+}

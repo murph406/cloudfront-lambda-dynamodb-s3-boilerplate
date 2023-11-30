@@ -1,0 +1,7 @@
+{
+    "keysToEncrypt": [
+    ],
+    "keysToEncryptWIndex": ["email"],
+    "keysToHash":["password"]
+  }
+  

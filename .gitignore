@@ -1,0 +1,10 @@
+# Folders
+node_modules
+src/output/*
+
+# File Types
+*.key
+
+# Files
+.DS_Store
+.env

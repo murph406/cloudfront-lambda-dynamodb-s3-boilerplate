@@ -1,0 +1,395 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: 'AWS::Serverless-2016-10-31'
+Description: Serverless Lambda, S3, Cloudfront same-domain stack
+
+Parameters:
+  Project:
+    Type: String
+  Stage:
+    Type: String
+    AllowedValues:
+      - develop
+      - stage
+      - main
+    Description: develop, stage or main
+  RecaptchaEnabled:
+    Type: String
+  RecaptchaThreshold:
+    Type: String
+  RecaptchaSecret:
+    Type: String
+  DynamoApplicationTable:
+    Type: String
+  EncryptSecret:
+    Type: String
+Resources:
+  BackendFunctionAccessRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${Project}-${Stage}-BackendFunctionAccessRole'
+      Tags:
+        - Key: Project
+          Value: !Ref Project
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: 'Allow'
+            Principal:
+              Service:
+                - 'lambda.amazonaws.com'
+            Action:
+              - 'sts:AssumeRole'
+      Path: '/'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: !Sub '${Project}-DynamoAccess'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'dynamodb:GetItem'
+                  - 'dynamodb:DeleteItem'
+                  - 'dynamodb:PutItem'
+                  - 'dynamodb:Scan'
+                  - 'dynamodb:Query'
+                  - 'dynamodb:UpdateItem'
+                  - 'dynamodb:BatchWriteItem'
+                  - 'dynamodb:BatchGetItem'
+                  - 'dynamodb:DescribeTable'
+                  - 'dynamodb:ConditionCheckItem'
+                Resource:
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/develop-${Project}-table'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/stage-${Project}-table'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/main-${Project}-table'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/develop-${Project}-table/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/stage-${Project}-table/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/main-${Project}-table/index/*'
+  BackendFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: >-
+        Backend API Lambda function
+      CodeUri: ../src/api
+      Handler: index.handler
+      Runtime: nodejs18.x
+      Timeout: 30
+      FunctionName: !Sub '${Project}-${Stage}-BackendFunction'
+      Role: !GetAtt BackendFunctionAccessRole.Arn
+      Environment:
+        Variables:
+          Project: !Ref Project
+          Stage: !Ref Stage
+          RecaptchaThreshold: !Ref RecaptchaThreshold
+          RecaptchaEnabled: !Ref RecaptchaEnabled
+          RecaptchaSecret: !Ref RecaptchaSecret
+          EncryptSecret: !Ref EncryptSecret
+          DynamoApplicationTable: !Ref DynamoApplicationTable
+  BackendFunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      AuthType: AWS_IAM
+      InvokeMode: BUFFERED
+      TargetFunctionArn: !GetAtt BackendFunction.Arn
+  FrontendS3BucketLogs:
+    Type: AWS::S3::Bucket
+    Properties:
+      Tags:
+        - Key: Project
+          Value: !Ref Project
+        - Key: Stage
+          Value: !Ref Stage
+      AccessControl: LogDeliveryWrite
+      BucketName: !Sub '${Project}-${Stage}-logs'
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerPreferred
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+  FrontendS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      Tags:
+        - Key: Project
+          Value: !Ref Project
+        - Key: Stage
+          Value: !Ref Stage
+      BucketName: !Sub '${Project}-${Stage}'
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      MetricsConfigurations:
+        - Id: !Sub '${Project}-${Stage}'
+      LoggingConfiguration:
+        DestinationBucketName: !Ref FrontendS3BucketLogs
+        LogFilePrefix: !Sub 'FrontendS3/'
+      VersioningConfiguration:
+        Status: Enabled
+  LambdaEdgeInvokeFunctionUrlPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: IAM policy for Lambda@Edge function to invoke backend lambda function url
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - lambda:InvokeFunctionUrl
+            Resource:
+              - !GetAtt BackendFunction.Arn
+            Condition:
+              StringEquals:
+                lambda:FunctionUrlAuthType: "AWS_IAM"
+  BackendApiLambdaEdgeRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      Tags:
+        - Key: Project
+          Value: !Ref Project
+        - Key: Stage
+          Value: !Ref Stage
+      Path: '/'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+        - !Ref LambdaEdgeInvokeFunctionUrlPolicy
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: 'AllowLambdaServiceToAssumeRole'
+            Effect: 'Allow'
+            Action:
+              - 'sts:AssumeRole'
+            Principal:
+              Service:
+                - 'lambda.amazonaws.com'
+                - 'edgelambda.amazonaws.com'
+  LambdaEdgeRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      Tags:
+        - Key: Project
+          Value: !Ref Project
+      Path: '/'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: 'AllowLambdaServiceToAssumeRole'
+            Effect: 'Allow'
+            Action:
+              - 'sts:AssumeRole'
+            Principal:
+              Service:
+                - 'lambda.amazonaws.com'
+                - 'edgelambda.amazonaws.com'
+  CloudfrontApiOriginRequestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: >-
+        This Lambda function signs requests from the frontend to access the api
+      CodeUri: ../src/functions/originRequests/apiOriginRequest
+      Handler: index.handler
+      Runtime: nodejs16.x
+      Timeout: 10
+      FunctionName: !Sub '${Project}-${Stage}-CloudfrontApiOriginRequest'
+      Role: !GetAtt BackendApiLambdaEdgeRole.Arn
+  CloudfrontApiOriginRequestFunctionVersion:
+    Type: AWS::Lambda::Version
+    Properties:
+      FunctionName: !GetAtt CloudfrontApiOriginRequestFunction.Arn
+  CloudfrontOriginRequestPolicy:
+    Type: AWS::CloudFront::OriginRequestPolicy
+    Properties:
+      OriginRequestPolicyConfig:
+        Name: !Sub '${Project}-${Stage}-OriginPolicyConfiguration'
+        CookiesConfig:
+          CookieBehavior: none
+        HeadersConfig:
+          HeaderBehavior: none
+        QueryStringsConfig:
+          QueryStringBehavior: all
+  CloudfrontClientOriginRequestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: >-
+        This Lambda function edits the incoming uri to redirect to the root
+      CodeUri: ../src/functions/originRequests/clientOriginRequest
+      Handler: index.handler
+      Runtime: nodejs16.x
+      Timeout: 10
+      FunctionName: !Sub '${Project}-${Stage}-CloudfrontClientOriginRequest'
+      Role: !GetAtt LambdaEdgeRole.Arn
+  CloudfrontClientOriginRequestFunctionVersion:
+    Type: AWS::Lambda::Version
+    Properties:
+      FunctionName: !GetAtt CloudfrontClientOriginRequestFunction.Arn
+  CloudfrontCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        DefaultTTL: 3600
+        MaxTTL: 86400
+        MinTTL: 300
+        Name: !Sub '${Project}-${Stage}-CloudfrontCachePolicy'
+        ParametersInCacheKeyAndForwardedToOrigin:
+          CookiesConfig:
+            CookieBehavior: none
+          HeadersConfig:
+            HeaderBehavior: none
+          QueryStringsConfig:
+            QueryStringBehavior: all
+          EnableAcceptEncodingGzip: true
+          EnableAcceptEncodingBrotli: true
+  CloudFrontOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Description: Default Origin Access Control
+        Name: !Sub '${Project}-${Stage}_Static-Site-Cloudfront-OAC'
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+  CloudfrontNoCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        DefaultTTL: 0
+        MaxTTL: 0
+        MinTTL: 0
+        Name: !Sub '${Project}-${Stage}-CloudfrontBackendNoCachePolicy'
+        ParametersInCacheKeyAndForwardedToOrigin:
+          CookiesConfig:
+            CookieBehavior: none
+          HeadersConfig:
+            HeaderBehavior: none
+          QueryStringsConfig:
+            QueryStringBehavior: none
+          EnableAcceptEncodingGzip: false
+          EnableAcceptEncodingBrotli: false
+  ApiResponsePolicy:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: !Sub '${Project}-${Stage}-API-Security-Response'
+        Comment: Response policy with security headers.
+        CorsConfig:
+          AccessControlAllowCredentials: false
+          AccessControlAllowHeaders:
+            Items:
+              - "*"
+          AccessControlAllowMethods:
+            Items:
+              - ALL
+          AccessControlAllowOrigins:
+            Items:
+              - "*"
+          OriginOverride: true
+  ApplicationTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      Tags:
+        - Key: Project
+          Value: !Ref Project
+        - Key: Stage
+          Value: !Ref Stage
+      TableName: !Join ['-', [!Ref Project, !Ref Stage, 'table']]
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: 
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+  CloudfrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub '${Project}-${Stage}'
+        Origins:
+          # Backend API Origin
+          - DomainName: !Join [ '', !Split [ '/', !Join [ '', !Split [ 'https://', !GetAtt BackendFunctionUrl.FunctionUrl ] ] ] ]
+            Id: BackendOrigin
+            CustomOriginConfig:
+              HTTPPort: 80
+              HTTPSPort: 443
+              OriginProtocolPolicy: https-only
+          - DomainName: !GetAtt FrontendS3Bucket.RegionalDomainName
+            Id: FrontendOrigin
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+            OriginAccessControlId: !GetAtt CloudFrontOAC.Id
+        CacheBehaviors:
+          - TargetOriginId: BackendOrigin
+            PathPattern: /api*
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: !GetAtt CloudfrontNoCachePolicy.Id
+            ResponseHeadersPolicyId: !GetAtt ApiResponsePolicy.Id
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+            AllowedMethods:
+              - HEAD
+              - DELETE
+              - POST
+              - GET
+              - OPTIONS
+              - PUT
+              - PATCH
+            LambdaFunctionAssociations:
+              - EventType: origin-request
+                IncludeBody: true
+                LambdaFunctionARN: !Join [ ':', [ !GetAtt CloudfrontApiOriginRequestFunction.Arn, !GetAtt CloudfrontApiOriginRequestFunctionVersion.Version ] ]
+        DefaultCacheBehavior:
+          TargetOriginId: FrontendOrigin
+          ViewerProtocolPolicy: redirect-to-https
+          CachePolicyId: !GetAtt CloudfrontCachePolicy.Id
+          OriginRequestPolicyId: !GetAtt CloudfrontOriginRequestPolicy.Id
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          LambdaFunctionAssociations:
+            - EventType: origin-request
+              IncludeBody: true
+              LambdaFunctionARN: !Join [ ':', [ !GetAtt CloudfrontClientOriginRequestFunction.Arn, !GetAtt CloudfrontClientOriginRequestFunctionVersion.Version ] ]
+  FrontendS3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendS3Bucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Id: !Sub 'Frontend-Bucket-OAC-Restricted-Policy-${Stage}'
+        Statement:
+          - Sid: 1
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Join ['', ['arn:aws:cloudfront::', !Sub '${AWS::AccountId}', ':distribution/', !GetAtt CloudfrontDistribution.Id]]
+            Action: s3:GetObject
+            Resource: !Join ['', [ !GetAtt FrontendS3Bucket.Arn, "/*"]]
+          - Sid: 2
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Join ['', ['arn:aws:cloudfront::', !Sub '${AWS::AccountId}', ':distribution/', !GetAtt CloudfrontDistribution.Id]]
+            Action: s3:ListBucket
+            Resource: !GetAtt FrontendS3Bucket.Arn
+
+            
